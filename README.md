@@ -20,8 +20,8 @@ This project implements an automated deep learning pipeline that generates the *
 
 ### 1. Clone the Repository
 ```bash
-git clone https://github.com/worknestmajor/Impression-generation-from-xray-images
-cd Summarized-Medical-Report-Generation-on-Chest-X-Rays
+git clone https://github.com/worknestmajor/Impression-generation-from-xray-images.git
+cd Impression-generation-from-xray-images
 ```
 
 ### 2. Create and Activate a Virtual Environment
