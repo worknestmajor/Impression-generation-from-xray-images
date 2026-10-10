@@ -20,7 +20,7 @@ This project implements an automated deep learning pipeline that generates the *
 
 ### 1. Clone the Repository
 ```bash
-git clone https://github.com/fastio19/Summarized-Medical-Report-Generation-on-Chest-X-Rays.git
+git clone https://github.com/worknestmajor/Impression-generation-from-xray-images
 cd Summarized-Medical-Report-Generation-on-Chest-X-Rays
 ```
 
