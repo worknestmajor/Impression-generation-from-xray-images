@@ -8,6 +8,7 @@ from tensorflow.keras.preprocessing.sequence import pad_sequences
 import pandas as pd
 import numpy as np
 import cv2
+import re
 from nltk.translate.bleu_score import sentence_bleu
 
 chexnet_weights = "chexnet_weights/brucechou1983_CheXNet_Keras_0.3.0_weights.h5"
@@ -17,7 +18,7 @@ def create_chexnet(chexnet_weights = chexnet_weights,input_size=(224,224)):
   chexnet_weights: weights value in .h5 format of chexnet
   creates a chexnet model with preloaded weights present in chexnet_weights file
   """
-  model = tf.keras.applications.DenseNet121(include_top=False,input_shape = input_size+(3,)) #importing densenet the last layer will be a relu activation layer
+  model = tf.keras.applications.DenseNet121(weights=None,include_top=False,input_shape = input_size+(3,)) #local CheXNet weights are loaded below
 
   #we need to load the weights so setting the architecture of the model as same as the one of the chexnet
   x = model.output #output from chexnet
@@ -41,7 +42,7 @@ class Image_encoder(tf.keras.layers.Layer):
     super().__init__()
     self.chexnet = create_chexnet(input_size = (224,224))
     self.chexnet.trainable = False
-    self.avgpool = AveragePooling2D()
+    self.avgpool = AveragePooling2D(pool_size=(2,2))
     # for i in range(10): #the last 10 layers of chexnet will be trained
     #   self.chexnet.layers[-i].trainable = True
     
@@ -110,7 +111,6 @@ class One_Step_Decoder(tf.keras.layers.Layer):
     self.dense_dim = dense_dim
     self.embedding = Embedding(input_dim = vocab_size+1,
                                 output_dim = embedding_dim,
-                                input_length=max_pad,
                                 mask_zero=True, 
                                 name = 'onestepdecoder_embedding'
                               )
@@ -215,7 +215,28 @@ def create_model():
   return model,tokenizer
 
 
-def greedy_search_predict(image1,image2,model,tokenizer,input_size = (224,224)):
+def _token_id(tokenizer, token):
+  """Return the scalar id for a special token, or None when it is unavailable."""
+  sequence = tokenizer.texts_to_sequences([token])
+  if sequence and sequence[0]:
+    return sequence[0][0]
+  return None
+
+
+def _format_impression(text):
+  """Normalize generated text into a display-ready sentence."""
+  text = " ".join(text.replace('<cls>', '').replace('<end>', '').split()).strip()
+  if not text:
+    return "No reliable impression could be generated. Please review the X-ray manually."
+  text = re.sub(r'\s+([.,!?;:])', r'\1', text)
+  sentences = re.split(r'(?<=[.!?])\s+', text)
+  text = " ".join(sentence[0].upper() + sentence[1:] for sentence in sentences if sentence)
+  if text[-1] not in '.!?':
+    text += '.'
+  return text
+
+
+def greedy_search_predict(image1,image2,model,tokenizer,input_size = (224,224),min_tokens=6,max_pad=29,return_details=False):
   """
   Given paths to two x-ray images predicts the impression part of the x-ray in a greedy search algorithm
   """
@@ -232,22 +253,41 @@ def greedy_search_predict(image1,image2,model,tokenizer,input_size = (224,224)):
 
 
   decoder_h,decoder_c = tf.zeros_like(enc_op[:,0]),tf.zeros_like(enc_op[:,0])
-  a = []
-  pred = []
-  max_pad = 29
+  generated_tokens = []
+  generated_attention = []
+  start_token = _token_id(tokenizer, '<cls>')
+  end_token = _token_id(tokenizer, '<end>')
+  if start_token is None:
+    raise ValueError("Tokenizer does not contain the required <cls> token")
+
+  caption = np.array([[start_token]])
   for i in range(max_pad):
-    if i==0: #if first word
-      caption = np.array(tokenizer.texts_to_sequences(['<cls>'])) #shape: (1,1)
     output,decoder_h,attention_weights = model.get_layer('decoder').onestepdecoder(caption,enc_op,decoder_h)#,decoder_c) decoder_c,
 
-    #prediction
-    max_prob = tf.argmax(output,axis=-1)  #tf.Tensor of shape = (1,1)
-    caption = np.array([max_prob]) #will be sent to onstepdecoder for next iteration
-    if max_prob==np.squeeze(tokenizer.texts_to_sequences(['<end>'])): 
+    # Prevent padding/start tokens from appearing in generated text. Also defer
+    # <end> until enough words have been produced to form a useful sentence.
+    token_scores = np.array(output).reshape(-1)
+    token_scores[0] = -np.inf
+    token_scores[start_token] = -np.inf
+    if end_token is not None and len(generated_tokens) < min_tokens:
+      token_scores[end_token] = -np.inf
+
+    next_token = int(np.argmax(token_scores))
+    if end_token is not None and next_token == end_token:
       break
-    else:
-      a.append(tf.squeeze(max_prob).numpy())
-  return tokenizer.sequences_to_texts([a])[0] #here output would be 1,1 so subscripting to open the array
+    generated_tokens.append(next_token)
+    generated_attention.append(np.array(attention_weights).reshape(-1))
+    caption = np.array([[next_token]])
+
+  generated_text = tokenizer.sequences_to_texts([generated_tokens])[0]
+  impression = _format_impression(generated_text)
+  if not return_details:
+    return impression
+  return impression, {
+    'token_ids': generated_tokens,
+    'tokens': [tokenizer.index_word.get(token_id,str(token_id)) for token_id in generated_tokens],
+    'attention': np.array(generated_attention,dtype=np.float32),
+  }
 
 
 def get_bleu(reference,prediction):
@@ -264,7 +304,7 @@ def get_bleu(reference,prediction):
   return bleu1,bleu2,bleu3,bleu4
 
 
-def predict1(image1,image2=None,model_tokenizer = None):
+def predict1(image1,image2=None,model_tokenizer = None,min_tokens=6,return_details=False):
   """given image1 and image 2 filepaths returns the predicted caption,
   the model_tokenizer will contain stored model_weights and tokenizer 
   """
@@ -281,7 +321,9 @@ def predict1(image1,image2=None,model_tokenizer = None):
     model,tokenizer = create_model()
   else:
     model,tokenizer = model_tokenizer[0],model_tokenizer[1]
-  predicted_caption = greedy_search_predict(image1,image2,model,tokenizer)
+  predicted_caption = greedy_search_predict(
+    image1,image2,model,tokenizer,min_tokens=min_tokens,return_details=return_details
+  )
 
   return predicted_caption
 
@@ -311,7 +353,7 @@ def predict2(true_caption, image1,image2=None,model_tokenizer = None):
   return pd.DataFrame([_],columns = ['bleu1','bleu2','bleu3','bleu4'])
 
 
-def function1(image1,image2,model_tokenizer = None):
+def function1(image1,image2,model_tokenizer = None,min_tokens=6,return_details=False):
   """
   here image1 and image2 will be a list of image
   filepaths and outputs the resulting captions as a list
@@ -320,7 +362,9 @@ def function1(image1,image2,model_tokenizer = None):
     model_tokenizer = list(create_model())
   predicted_caption = []
   for i1,i2 in zip(image1,image2):
-    caption = predict1(i1,i2,model_tokenizer)
+    caption = predict1(
+      i1,i2,model_tokenizer,min_tokens=min_tokens,return_details=return_details
+    )
     predicted_caption.append(caption)
 
   return predicted_caption
@@ -332,9 +376,10 @@ def function2(true_caption,image1,image2):
   as a dataframe
   """
   model_tokenizer = list(create_model())
-  predicted = pd.DataFrame(columns = ['bleu1','bleu2','bleu3','bleu4'])
+  predictions = []
   for c,i1,i2 in zip(true_caption,image1,image2):
-    caption = predict2(c,i1,i2,model_tokenizer)
-    predicted = predicted.append(caption,ignore_index = True)
+    predictions.append(predict2(c,i1,i2,model_tokenizer))
 
-  return predicted
+  if not predictions:
+    return pd.DataFrame(columns = ['bleu1','bleu2','bleu3','bleu4'])
+  return pd.concat(predictions,ignore_index=True)
