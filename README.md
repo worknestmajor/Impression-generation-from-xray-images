@@ -1,8 +1,52 @@
-# Summarized-Medical-Report-Generation-on-Chest-X-Rays
-Medical imaging is the process of creating visual representations of the interior of a body for clinical analysis as well as visual representation of the function of some organs or tissues. They are widely used in hospitals and clinics to determine fractures and diseases. The medical images are read and interpreted by specialized medical professionals and their findings regarding each body of area examined are communicated via written Medical Reports. The process of writing medical reports usually takes around 5–10 minutes per report. In a day the doctors have to write medical reports that number in 100s which can take a lot of their time. The objective of this case study is to build a deep learning model that automatically write the impression part of medical report of chest X-rays and alleviate some of the burden of the medical professional. Here I will be taking a publicly available dataset from Indiana University which consists of chest X-ray images and reports (in XML format) which contain information regarding the findings and impression of the X-ray. The goal is to predict the impressions of the medical report attached to the images.
+# Summarized Medical Report Generation on Chest X-Rays
 
+## Overview
+Medical imaging is a critical diagnostic tool in modern healthcare. Interpreting chest X-rays and writing clinical reports manually can take 5–10 minutes per examination, placing a significant workload on radiologists who interpret hundreds of scans daily.
 
-[![Streamlit App](https://static.streamlit.io/badges/streamlit_badge_black_white.svg)](https://share.streamlit.io/fastio19/summarized-medical-report-generation-on-chest-x-rays/main/final.py)
+This project implements an automated deep learning pipeline that generates the **Impression** section of a radiology report directly from chest X-ray images (frontal and lateral views). Using an encoder-decoder architecture with CheXNet feature extraction and Bahdanau additive attention, the system produces concise, clinically relevant diagnostic impressions along with visual attention heatmaps indicating where the model focused for each generated word.
 
-![Hnet-image](https://github.com/fastio19/Summarized-Medical-Report-Generation-on-Chest-X-Rays/blob/main/preview.gif)
+---
+
+## Features
+- **Dual-View Support**: Accepts frontal and optional lateral chest X-ray images.
+- **Attention Visualization**: Interactive token-by-token spatial attention heatmap overlays on both input views.
+- **Export Capabilities**: Download generated impressions as formatted PDF or JSON reports.
+- **Session Management**: Tracks recent reports and examination history across user sessions.
+- **Interactive UI**: Clean, multi-tab Streamlit interface (`Upload X-rays`, `Try a sample`, and `Recent reports`).
+
+---
+
+## Getting Started
+
+### 1. Clone the Repository
+```bash
+git clone https://github.com/fastio19/Summarized-Medical-Report-Generation-on-Chest-X-Rays.git
+cd Summarized-Medical-Report-Generation-on-Chest-X-Rays
+```
+
+### 2. Create and Activate a Virtual Environment
+
+**On Windows (PowerShell / Command Prompt):**
+```bash
+python -m venv env
+.\env\Scripts\activate
+```
+
+**On Linux / macOS:**
+```bash
+python3 -m venv env
+source env/bin/activate
+```
+
+### 3. Install Dependencies
+```bash
+pip install -r requirements.txt
+```
+
+### 4. Run the Streamlit Application
+```bash
+streamlit run final.py
+```
+
+Once started, open your web browser at `http://localhost:8501` to use the application.
 
